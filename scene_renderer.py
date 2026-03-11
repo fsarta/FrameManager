@@ -1,14 +1,14 @@
 """
 scene_renderer.py
 -----------------
-Gestisce il rendering della scena 3D: assi, link e label.
+Gestisce il rendering della scena 3D: assi, link, label, nastri e mesh.
 
 Estratto da app.py per separare responsabilità.
 """
 
 from __future__ import annotations
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 import numpy as np
 import open3d as o3d
@@ -37,7 +37,8 @@ BG_COLOR = [0.10, 0.10, 0.16, 1.0]
 
 class SceneRenderer:
     """
-    Gestisce la visualizzazione 3D dei frame, con highlight per la selezione.
+    Gestisce la visualizzazione 3D dei frame, nastri e mesh,
+    con highlight per la selezione.
 
     Attributes
     ----------
@@ -49,26 +50,25 @@ class SceneRenderer:
         self._scene_widget = scene_widget
         self._labels_3d: List = []
         self._selected: Optional[str] = None
+        # Mesh importate: {frame_name: (mesh, file_path)}
+        self._attached_meshes: Dict[str, tuple] = {}
 
     def setup_scene(self) -> None:
-        """Configura le impostazioni iniziali della scena (background, ground plane, luce)."""
+        """Configura le impostazioni iniziali della scena."""
         s = self._scene_widget.scene
         s.set_background(BG_COLOR)
         s.show_ground_plane(True, rendering.Scene.GroundPlane.XZ)
         s.scene.enable_sun_light(True)
 
+    # ------------------------------------------------------------------
+    # Refresh completo
+    # ------------------------------------------------------------------
+
     def refresh_scene(
         self, tree: "FrameTree", selected: Optional[str] = None
     ) -> None:
         """
-        Ri-renderizza l'intera scena: assi, link e label.
-
-        Parameters
-        ----------
-        tree : FrameTree
-            L'albero dei frame da visualizzare.
-        selected : str | None
-            Nome del frame selezionato (verrà evidenziato).
+        Ri-renderizza l'intera scena: assi, link, label, nastri e mesh.
         """
         self._selected = selected
         s = self._scene_widget.scene
@@ -93,31 +93,31 @@ class SceneRenderer:
         mat_highlight = rendering.MaterialRecord()
         mat_highlight.shader = "defaultUnlit"
 
+        # ── Frame ─────────────────────────────────────────────────────
         for name, frame in tree.frames.items():
             try:
                 T = tree.get_world_transform(name)
             except RuntimeError as exc:
-                log.error("Errore nel calcolo della trasformazione per '%s': %s",
-                          name, exc)
+                log.error("Errore trasformazione '%s': %s", name, exc)
                 continue
 
             is_selected = (name == selected)
 
-            # ── Sistema di riferimento (assi X=rosso, Y=verde, Z=blu) ──
+            # Assi
             if name == "world":
                 size = AXIS_SIZE * 1.4
             elif is_selected:
-                size = AXIS_SIZE * 1.6  # più grande se selezionato
+                size = AXIS_SIZE * 1.6
             else:
                 size = AXIS_SIZE
 
-            mesh = o3d.geometry.TriangleMesh.create_coordinate_frame(
+            mesh_axes = o3d.geometry.TriangleMesh.create_coordinate_frame(
                 size=size, origin=[0.0, 0.0, 0.0]
             )
-            mesh.transform(T)
-            s.add_geometry(f"frame_{name}", mesh, mat_mesh)
+            mesh_axes.transform(T)
+            s.add_geometry(f"frame_{name}", mesh_axes, mat_mesh)
 
-            # ── Sfera highlight per il frame selezionato ──
+            # Sfera highlight
             if is_selected:
                 sphere = o3d.geometry.TriangleMesh.create_sphere(
                     radius=size * 0.35
@@ -127,7 +127,7 @@ class SceneRenderer:
                 sphere.transform(T)
                 s.add_geometry(f"highlight_{name}", sphere, mat_highlight)
 
-            # ── Linea di collegamento al frame padre ──
+            # Linea di collegamento al padre
             if frame.parent and frame.parent in tree.frames:
                 try:
                     T_parent = tree.get_world_transform(frame.parent)
@@ -142,13 +142,122 @@ class SceneRenderer:
                 except RuntimeError:
                     pass
 
-            # ── Etichetta 3D con il nome del frame ──
+            # Label 3D
             label_pos = T[:3, 3] + T[:3, 2] * size * 0.2
             try:
                 lbl_obj = self._scene_widget.add_3d_label(label_pos, name)
                 self._labels_3d.append(lbl_obj)
             except Exception:
                 log.debug("add_3d_label non disponibile per '%s'", name)
+
+            # Mesh importata attaccata a questo frame
+            if name in self._attached_meshes:
+                imported_mesh, _ = self._attached_meshes[name]
+                m = o3d.geometry.TriangleMesh(imported_mesh)
+                m.transform(T)
+                mat_imported = rendering.MaterialRecord()
+                mat_imported.shader = "defaultLit"
+                s.add_geometry(f"mesh_{name}", m, mat_imported)
+
+        # ── Nastri ────────────────────────────────────────────────────
+        for rname, ribbon in tree.ribbons.items():
+            self._render_ribbon(tree, ribbon, s)
+
+    # ------------------------------------------------------------------
+    # Rendering nastri
+    # ------------------------------------------------------------------
+
+    def _render_ribbon(
+        self, tree: "FrameTree", ribbon, scene
+    ) -> None:
+        """Renderizza un nastro come box 3D colorato."""
+        # Calcola la trasformazione world del frame padre
+        parent = ribbon.parent_frame
+        if parent not in tree.frames:
+            parent = "world"
+
+        try:
+            T_parent = tree.get_world_transform(parent)
+        except RuntimeError:
+            T_parent = np.eye(4)
+
+        # Trasformazione locale del nastro
+        T_local = ribbon.transform
+        T_world = T_parent @ T_local
+
+        # Crea il box centrato
+        box = o3d.geometry.TriangleMesh.create_box(
+            width=ribbon.width,
+            height=ribbon.height,
+            depth=ribbon.length,
+        )
+        # Centra il box (create_box parte da [0,0,0])
+        box.translate([
+            -ribbon.width / 2.0,
+            -ribbon.height / 2.0,
+            -ribbon.length / 2.0,
+        ])
+        box.paint_uniform_color(ribbon.color)
+        box.compute_vertex_normals()
+        box.transform(T_world)
+
+        # Materiale
+        mat = rendering.MaterialRecord()
+        mat.shader = "defaultLit"
+        mat.base_color = [
+            ribbon.color[0], ribbon.color[1], ribbon.color[2],
+            ribbon.opacity,
+        ]
+
+        scene.add_geometry(f"ribbon_{ribbon.name}", box, mat)
+
+        # Label
+        label_pos = T_world[:3, 3] + np.array([0, ribbon.height * 2, 0])
+        try:
+            lbl = self._scene_widget.add_3d_label(label_pos, f"🔲 {ribbon.name}")
+            self._labels_3d.append(lbl)
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Mesh importate
+    # ------------------------------------------------------------------
+
+    def attach_mesh(self, frame_name: str, file_path: str) -> bool:
+        """
+        Carica e attacca un file mesh (.stl, .obj, .ply) a un frame.
+
+        Returns
+        -------
+        bool
+            True se il caricamento ha avuto successo.
+        """
+        try:
+            mesh = o3d.io.read_triangle_mesh(file_path)
+            if not mesh.has_vertices():
+                log.warning("Mesh vuota: %s", file_path)
+                return False
+            mesh.compute_vertex_normals()
+            self._attached_meshes[frame_name] = (mesh, file_path)
+            log.info("Mesh '%s' attaccata al frame '%s'", file_path, frame_name)
+            return True
+        except Exception as exc:
+            log.error("Errore nel caricamento mesh: %s", exc)
+            return False
+
+    def detach_mesh(self, frame_name: str) -> None:
+        """Rimuove la mesh attaccata a un frame."""
+        self._attached_meshes.pop(frame_name, None)
+
+    def get_attached_mesh_path(self, frame_name: str) -> Optional[str]:
+        """Restituisce il path della mesh attaccata, o None."""
+        if frame_name in self._attached_meshes:
+            return self._attached_meshes[frame_name][1]
+        return None
+
+    # ------------------------------------------------------------------
+    # Camera
+    # ------------------------------------------------------------------
 
     def reset_camera(self) -> None:
         """Posiziona la camera per inquadrare tutti i frame."""

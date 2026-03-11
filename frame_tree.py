@@ -20,6 +20,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from frame import Frame
+from ribbon import Ribbon
 from logger import get_logger
 from observer import Signal
 
@@ -55,6 +56,7 @@ class FrameTree:
 
     def __init__(self) -> None:
         self.frames: Dict[str, Frame] = {}
+        self.ribbons: Dict[str, Ribbon] = {}
         # La radice è sempre presente
         self.frames["world"] = Frame("world")
 
@@ -62,6 +64,7 @@ class FrameTree:
         self.frame_added = Signal()
         self.frame_removed = Signal()
         self.frame_modified = Signal()
+        self.ribbon_changed = Signal()
         self.tree_loaded = Signal()
 
     # ------------------------------------------------------------------
@@ -270,17 +273,51 @@ class FrameTree:
         return {name: self.get_world_transform(name) for name in self.frames}
 
     # ------------------------------------------------------------------
+    # Gestione nastri
+    # ------------------------------------------------------------------
+
+    def add_ribbon(self, ribbon: Ribbon) -> bool:
+        """Aggiunge un nastro. Restituisce False se il nome esiste già."""
+        if ribbon.name in self.ribbons:
+            log.warning("add_ribbon: nome '%s' già presente", ribbon.name)
+            return False
+        if ribbon.parent_frame not in self.frames:
+            log.info("add_ribbon: parent '%s' non trovato, uso 'world'", ribbon.parent_frame)
+            ribbon.parent_frame = "world"
+        self.ribbons[ribbon.name] = ribbon
+        log.info("Nastro '%s' aggiunto (parent='%s')", ribbon.name, ribbon.parent_frame)
+        self.ribbon_changed.emit(ribbon.name)
+        return True
+
+    def remove_ribbon(self, name: str) -> bool:
+        """Rimuove un nastro. Restituisce False se non esiste."""
+        if name not in self.ribbons:
+            return False
+        del self.ribbons[name]
+        log.info("Nastro '%s' rimosso", name)
+        self.ribbon_changed.emit(name)
+        return True
+
+    def get_ribbon_names(self) -> List[str]:
+        """Restituisce la lista dei nomi dei nastri."""
+        return list(self.ribbons.keys())
+
+    # ------------------------------------------------------------------
     # Serializzazione
     # ------------------------------------------------------------------
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serializza l'intero albero in un dizionario."""
+        """Serializza l'intero albero (frame + nastri) in un dizionario."""
         return {
             "frames": [
                 f.to_dict()
                 for f in self.frames.values()
                 if f.name != "world"
-            ]
+            ],
+            "ribbons": [
+                r.to_dict()
+                for r in self.ribbons.values()
+            ],
         }
 
     @classmethod
@@ -306,6 +343,11 @@ class FrameTree:
                 added.add(f.name)
             else:
                 frames_data.append(fd)  # riprova dopo
+
+        # Deserializza nastri
+        for rd in d.get("ribbons", []):
+            r = Ribbon.from_dict(rd)
+            tree.ribbons[r.name] = r
 
         tree.tree_loaded.emit()
         return tree

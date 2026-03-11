@@ -1,0 +1,20 @@
+2026-03-11 23:18:38,235 [WARNING] frame3d.frame_tree: add_frame: nome 'A' già presente
+2026-03-11 23:18:38,247 [WARNING] frame3d.frame_tree: remove_frame: impossibile rimuovere 'world'
+2026-03-11 23:18:38,256 [WARNING] frame3d.frame_tree: rename_frame: frame 'world' non rinominabile
+2026-03-11 23:18:38,260 [WARNING] frame3d.frame_tree: rename_frame: nome 'B' già esistente
+2026-03-11 23:18:38,279 [ERROR  ] frame3d.frame_tree: get_world_transform: frame 'nonexistent' non trovato
+2026-03-11 23:18:48,350 [WARNING] frame3d.frame_tree: add_frame: nome 'A' già presente
+2026-03-11 23:18:48,354 [WARNING] frame3d.frame_tree: remove_frame: impossibile rimuovere 'world'
+2026-03-11 23:18:48,359 [WARNING] frame3d.frame_tree: rename_frame: frame 'world' non rinominabile
+2026-03-11 23:18:48,361 [WARNING] frame3d.frame_tree: rename_frame: nome 'B' già esistente
+2026-03-11 23:18:48,368 [ERROR  ] frame3d.frame_tree: get_world_transform: frame 'nonexistent' non trovato
+2026-03-11 23:19:04,221 [WARNING] frame3d.frame_tree: add_frame: nome 'A' già presente
+2026-03-11 23:19:04,225 [WARNING] frame3d.frame_tree: remove_frame: impossibile rimuovere 'world'
+2026-03-11 23:19:04,228 [WARNING] frame3d.frame_tree: rename_frame: frame 'world' non rinominabile
+2026-03-11 23:19:04,229 [WARNING] frame3d.frame_tree: rename_frame: nome 'B' già esistente
+2026-03-11 23:19:04,235 [ERROR  ] frame3d.frame_tree: get_world_transform: frame 'nonexistent' non trovato
+2026-03-11 23:19:19,526 [WARNING] frame3d.frame_tree: add_frame: nome 'A' già presente
+2026-03-11 23:19:19,532 [WARNING] frame3d.frame_tree: remove_frame: impossibile rimuovere 'world'
+2026-03-11 23:19:19,536 [WARNING] frame3d.frame_tree: rename_frame: frame 'world' non rinominabile
+2026-03-11 23:19:19,539 [WARNING] frame3d.frame_tree: rename_frame: nome 'B' già esistente
+2026-03-11 23:19:19,546 [ERROR  ] frame3d.frame_tree: get_world_transform: frame 'nonexistent' non trovato

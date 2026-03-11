@@ -33,6 +33,7 @@ Layout
 
 from __future__ import annotations
 
+import time
 from typing import Optional
 import numpy as np
 import open3d as o3d
@@ -69,6 +70,7 @@ class Frame3DApp:
         self._selected_ribbon: Optional[str] = None
         self._clipboard_frame: Optional[Frame] = None
         self._updating_ui: bool = False
+        self._last_autosave: float = 0.0
 
         # Recovery o demo
         if IOHandler.has_autosave():
@@ -105,7 +107,7 @@ class Frame3DApp:
 
     def _on_tree_changed(self, name: str = "") -> None:
         if not self._updating_ui:
-            self._autosave()
+            self._autosave_throttled()
 
     def _on_tree_loaded(self) -> None:
         pass
@@ -223,9 +225,14 @@ class Frame3DApp:
     # ------------------------------------------------------------------
 
     def _refresh_all(self) -> None:
+        """Aggiorna tutto: scena 3D + TreeView + ribbon list."""
         self.renderer.refresh_scene(self.tree, self._selected)
         self.panel_builder.refresh_tree(self.tree)
         self.panel_builder.refresh_ribbon_list(self.tree)
+
+    def _refresh_scene_only(self) -> None:
+        """Aggiorna solo la scena 3D (veloce, nessun rebuild dei widget)."""
+        self.renderer.refresh_scene(self.tree, self._selected)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -237,8 +244,14 @@ class Frame3DApp:
     def _autosave(self) -> None:
         try:
             IOHandler.autosave(self.tree)
+            self._last_autosave = time.time()
         except Exception as exc:
             log.warning("Autosave fallito: %s", exc)
+
+    def _autosave_throttled(self) -> None:
+        """Autosave al massimo ogni 5 secondi per evitare I/O eccessivo."""
+        if time.time() - self._last_autosave > 5.0:
+            self._autosave()
 
     def _status(self, msg: str) -> None:
         self.panel_builder.set_status(msg)
@@ -298,8 +311,8 @@ class Frame3DApp:
         pass
 
     def _on_click_apply(self) -> None:
-        if not self._selected or self._selected == "world":
-            self._status("Seleziona un frame non-world da modificare.")
+        if not self._selected:
+            self._status("Seleziona un frame da modificare.")
             return
         pb = self.panel_builder
         frame = self.tree.frames[self._selected]
@@ -317,19 +330,23 @@ class Frame3DApp:
             degrees=True,
         )
 
-        all_names = self.tree.get_all_names()
-        idx = pb.combo_parent.selected_index
-        if 0 <= idx < len(all_names):
-            new_parent = all_names[idx]
-            if new_parent != self._selected:
-                if not self.tree.would_create_cycle(self._selected, new_parent):
-                    frame.parent = new_parent
-                else:
-                    self._status("Errore: parent creerebbe un ciclo!")
-                    return
+        # Cambio parent (non per world)
+        if self._selected != "world":
+            all_names = self.tree.get_all_names()
+            idx = pb.combo_parent.selected_index
+            if 0 <= idx < len(all_names):
+                new_parent = all_names[idx]
+                if new_parent != self._selected:
+                    if not self.tree.would_create_cycle(self._selected, new_parent):
+                        frame.parent = new_parent
+                    else:
+                        self._status("Errore: parent creerebbe un ciclo!")
+                        return
 
-        self._refresh_all()
+        # Solo refresh scena (veloce), niente rebuild TreeView
+        self._refresh_scene_only()
         self._sync_ui_from_frame(self._selected)
+        self._autosave_throttled()
         self._status(f"Frame '{self._selected}' aggiornato.")
 
     def _on_click_add(self) -> None:
@@ -597,7 +614,8 @@ class Frame3DApp:
             max(0.0, min(1.0, pb.ne_r_blue.double_value)),
         ]
 
-        self._refresh_all()
+        self._refresh_scene_only()
+        self._autosave_throttled()
         self._status(f"Nastro '{self._selected_ribbon}' aggiornato.")
 
     # ------------------------------------------------------------------
